@@ -9,6 +9,8 @@
 
 const int WIN_SIZE_X = 320;
 const int WIN_SIZE_Y = 240;
+const int QL_TOGGLE_HOTKEY_ID = 0x01;
+
 HWND hButton;
 HWND hMainWindow;
 
@@ -57,6 +59,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     MSG msg = { };
     while (GetMessage(&msg, NULL, 0, 0))
     {
+        if (msg.message == WM_HOTKEY)
+        {
+            if ((int)msg.wParam == QL_TOGGLE_HOTKEY_ID) {
+                BOOL clickLockEnabled;
+                SystemParametersInfoW(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
+                if (clickLockEnabled) {
+                    SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE);
+                }
+                else {
+                    SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE);
+                }
+            }
+
+        }
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
@@ -69,9 +85,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     switch (uMsg)
     {
     case WM_DESTROY:
+    {
         PostQuitMessage(0);
         return 0;
-
+        break;
+    }
     case WM_CREATE:
     {
         hButton = CreateWindowEx(0, L"BUTTON", L"Toggle",
@@ -79,6 +97,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             0, 0, 50, 25,
             hwnd,
             (HMENU)IDC_BUTTON, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+        if (!RegisterHotKey(hMainWindow, QL_TOGGLE_HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_F1)) {
+            MessageBox(hMainWindow, L"Hotkey has NOT been registered.", L"Hotkey Status", MB_ICONINFORMATION);
+            PostQuitMessage(0);
+
+        }
         break;
     }
     case WM_PAINT:
@@ -91,6 +114,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
 
         EndPaint(hwnd, &ps);
+        break;
     }
     case WM_COMMAND:
     {
@@ -107,6 +131,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
 
         }
+        break;
+    }
+    case WM_CLOSE:
+    {
+        UnregisterHotKey(hMainWindow, QL_TOGGLE_HOTKEY_ID);
+        DestroyWindow(hMainWindow);
+        break;
+    }
+    default:
+    {
+        DefWindowProc(hMainWindow, uMsg, wParam, lParam);
+        break;
     }
     return 0;
 
