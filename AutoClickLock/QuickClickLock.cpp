@@ -2,25 +2,31 @@
 #define UNICODE
 #endif 
 
-#define IDC_BUTTON 1001
-
 #include <windows.h>
+#include <tchar.h>
 #include <winuser.h>
+#include <commctrl.h>
 
-const int WIN_SIZE_X = 320;
-const int WIN_SIZE_Y = 240;
-const int QL_TOGGLE_HOTKEY_ID = 0x01;
+#define WIN_SIZE_X 320
+#define WIN_SIZE_Y 240
+#define QL_TOGGLE_HOTKEY_ID 0x01
+#define CUSTOM_HOTKEY_CLASS_ID 0x01
 
-HWND hButton;
-HWND hMainWindow;
+HWND hwndMain;
+HWND hwndHotCtrl;
+HINSTANCE hInst;
 
-
+// forward declarations
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK OwnerDrawButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+HWND WINAPI InitializeHotkeyControl(HWND hwndDlg);
+BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl);
+void ToggleClickLock();
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
     // Register the window class.
-    const wchar_t CLASS_NAME[] = L"Quick ClickLock";
+    const wchar_t CLASS_NAME[] = L"MAIN WINDOW";
 
     WNDCLASS wc = { };
 
@@ -32,7 +38,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     // Create the window.
 
-    hMainWindow = CreateWindowEx(
+    hwndMain = CreateWindowEx(
         0,                              // Optional window styles.
         CLASS_NAME,                     // Window class
         L"Quick ClickLock",    // Window text
@@ -47,12 +53,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         NULL        // Additional application data
     );
 
-    if (hMainWindow == NULL)
+    if (hwndMain == NULL)
     {
         return 0;
     }
 
-    ShowWindow(hMainWindow, nCmdShow);
+    ShowWindow(hwndMain, nCmdShow);
+
+    hInst = hInstance;
 
     // Run the message loop.
 
@@ -61,15 +69,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     {
         if (msg.message == WM_HOTKEY)
         {
+            MessageBox(hwndMain, L"An issue occurred while trying to register the ClickLock Toggle hotkey.\nMake sure the hotkey isn't used elsewhere and reassign the hotkey in the Quick ClickLock main window.",
+                L"Hotkey Error", MB_ICONERROR);
             if ((int)msg.wParam == QL_TOGGLE_HOTKEY_ID) {
-                BOOL clickLockEnabled;
-                SystemParametersInfoW(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
-                if (clickLockEnabled) {
-                    SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE);
-                }
-                else {
-                    SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE);
-                }
+                ToggleClickLock();
             }
 
         }
@@ -84,68 +87,138 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
     {
-    case WM_DESTROY:
-    {
-        PostQuitMessage(0);
-        return 0;
-        break;
-    }
-    case WM_CREATE:
-    {
-        hButton = CreateWindowEx(0, L"BUTTON", L"Toggle",
-            WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP,
-            0, 0, 50, 25,
-            hwnd,
-            (HMENU)IDC_BUTTON, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
-        if (!RegisterHotKey(hMainWindow, QL_TOGGLE_HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_F1)) {
-            MessageBox(hMainWindow, L"Hotkey has NOT been registered.", L"Hotkey Status", MB_ICONINFORMATION);
+        case WM_CREATE:
+        {
+            hwndHotCtrl = InitializeHotkeyControl(hwnd);
+            AssignHotkey(hwndMain, hwndHotCtrl);            
+            break;
+        }
+        case WM_PAINT:
+        {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+
+
+
+            FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
+
+            EndPaint(hwnd, &ps);
+            break;
+        }
+        case WM_LBUTTONDOWN:
+        {
+            SetFocus(hwnd);
+            break;
+        }
+        case WM_CLOSE:
+        {
+            DestroyWindow(hwnd);
+            break;
+        }
+        case WM_DESTROY:
+        {
+            UnregisterHotKey(hwnd, QL_TOGGLE_HOTKEY_ID);
             PostQuitMessage(0);
-
+            return 0;
+            break;
         }
-        break;
-    }
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-
-
-
-        FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
-
-        EndPaint(hwnd, &ps);
-        break;
-    }
-    case WM_COMMAND:
-    {
-        if (LOWORD(wParam == IDC_BUTTON)) {
-            BOOL clickLockEnabled;
-            SystemParametersInfoW(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
-            if (clickLockEnabled) {
-                SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE);
-                MessageBox(hMainWindow, L"ClickLock has been disabled", L"ClickLock Status", MB_ICONINFORMATION);
-            }
-            else {
-                SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE);
-                MessageBox(hMainWindow, L"ClickLock has been enabled", L"ClickLock Status", MB_ICONINFORMATION);
-            }
-
+        default:
+        {
+            DefWindowProc(hwnd, uMsg, wParam, lParam);
+            break;
         }
-        break;
+        return 0;
     }
-    case WM_CLOSE:
-    {
-        UnregisterHotKey(hMainWindow, QL_TOGGLE_HOTKEY_ID);
-        DestroyWindow(hMainWindow);
-        break;
-    }
-    default:
-    {
-        DefWindowProc(hMainWindow, uMsg, wParam, lParam);
-        break;
-    }
-    return 0;
+}
 
+LRESULT CALLBACK HotkeyControlProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
+{
+    switch (uMsg)
+    {
+        case WM_KILLFOCUS:
+        {
+            AssignHotkey(hwndMain, hwndHotCtrl);
+        }
+        default:
+        {
+            DefWindowProc(hWnd, uMsg, wParam, lParam);
+            DefSubclassProc(hWnd, uMsg, wParam, lParam);
+            break;
+        }
+        return 0;
     }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+HWND WINAPI InitializeHotkeyControl(HWND hwnd)
+{
+
+    HWND hwndHot = NULL;
+
+    // Ensure that the common control DLL is loaded. 
+    INITCOMMONCONTROLSEX icex;  //declare an INITCOMMONCONTROLSEX Structure
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_HOTKEY_CLASS;   //set dwICC member to ICC_HOTKEY_CLASS    
+                                     // this loads the Hot Key control class.
+    InitCommonControlsEx(&icex);
+
+    hwndHot = CreateWindowEx(0,                        // no extended styles 
+        HOTKEY_CLASS,             // class name 
+        L"",                 // no title (caption) 
+        WS_CHILD | WS_VISIBLE,    // style 
+        10, 10,                   // position 
+        150, 20,                  // size 
+        hwnd,                  // parent window 
+        NULL,                     // uses class menu 
+        hInst,                  // instance 
+        NULL);                    // no WM_CREATE parameter 
+
+    SetWindowSubclass(hwndHot, HotkeyControlProc, CUSTOM_HOTKEY_CLASS_ID, NULL);
+
+    SendMessage(hwndHot,
+        HKM_SETRULES,
+        (WPARAM)HKCOMB_NONE | HKCOMB_S,   // invalid key combinations 
+        MAKELPARAM(HOTKEYF_CONTROL, 0));
+
+// Set CTRL + ALT + A as the default hot key for this window. 
+// 0x41 is the virtual key code for 'A'. 
+    SendMessage(hwndHot,
+        HKM_SETHOTKEY,
+        MAKEWORD(0x4C, HOTKEYF_CONTROL | HOTKEYF_SHIFT),
+        0);
+
+    return hwndHot;
+}
+
+void ToggleClickLock() {
+    BOOL clickLockEnabled;
+    SystemParametersInfoW(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
+    if (clickLockEnabled) {
+        SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE);
+    }
+    else {
+        SystemParametersInfoW(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE);
+    }
+}
+
+BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl) {
+    UnregisterHotKey(NULL, QL_TOGGLE_HOTKEY_ID);
+    LRESULT hotkeyData = SendMessageW(hwndHotCtrl, HKM_GETHOTKEY, 0, 0);
+    byte modifiers = HIBYTE(hotkeyData) | MOD_NOREPEAT;
+
+    // Compensate for difference between HOTKEYF_SHIFT/HOTKEYF_ALT and MOD_SHIFT/MOD_ALT
+    if (modifiers & 0x01 & ~0x04) {
+        modifiers = modifiers & ~0x01 | 0x04;
+    }
+    else if(modifiers & 0x04) {
+        modifiers = modifiers & ~0x04 | 0x01;
+    }
+
+    byte vKey = LOBYTE(hotkeyData);
+    BOOL assignedHotkey = RegisterHotKey(NULL, QL_TOGGLE_HOTKEY_ID, modifiers, vKey);
+    if (!assignedHotkey)
+    {
+        MessageBox(hwndMain, L"An issue occurred while trying to register the ClickLock Toggle hotkey.\nMake sure the hotkey isn't used elsewhere and reassign the hotkey in the Quick ClickLock main window.",
+            L"Hotkey Error", MB_ICONERROR);
+    }
+    return assignedHotkey;
 }
