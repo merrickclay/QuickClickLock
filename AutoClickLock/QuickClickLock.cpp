@@ -7,7 +7,10 @@
 #include <winuser.h>
 #include <commctrl.h>
 #include <shlObj.h>
+#include <string>
+#include <strsafe.h>
 
+#define APP_NAME L"QUICK_CLICKLOCK"
 #define WIN_SIZE_X 320
 #define WIN_SIZE_Y 160
 #define CLICKLOCK_TIME_MIN 200
@@ -15,6 +18,12 @@
 #define CLICKLOCK_TIME_DEFAULT 1200
 #define QL_TOGGLE_HOTKEY_ID 0x01
 #define CUSTOM_HOTKEY_CLASS_ID 0x01
+
+const LPCTSTR APPDATA_FOLDER = L"QuickClickLock\\";
+const LPCTSTR INI_FILENAME = L"quick_clicklock.ini";
+const int DEFAULT_HOTKEY = 0x4C;
+const int DEFAULT_MODIFIERS = HOTKEYF_CONTROL | HOTKEYF_SHIFT;
+const int DEFAULT_ACTIVATION_TIME = 1200;
 
 RECT rcClient;
 HBRUSH hBrushLabel;
@@ -29,7 +38,16 @@ HWND hwndHotCtrl = NULL;
 HWND hwndTimeLabel = NULL;
 HWND hwndUpDnEdtBdy = NULL;
 HWND hwndUpDnCtl = NULL;
+BOOL UpDnCtlInitialized = FALSE;
 HINSTANCE hInst = NULL;
+
+TCHAR iniFilePath[MAX_PATH];
+
+struct IniVars {
+    int activationTime;
+    int shortcutKey;
+    int shortcutModifiers;
+} savedVars;
 
 // forward declarations
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -43,9 +61,32 @@ HWND CreateGroupBox(HWND hwndParent, LPCWSTR windowName, int x, int y, int width
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl);
 void ToggleClickLock();
 void SetActivationTimer(int val);
+void AssignDefaultVars();
+BOOL FetchIniFilePath();
+BOOL CreateIniFile();
+void ReadIniFile();
+BOOL UpdateIniFile();
+BOOL DirectoryExists(LPCTSTR szPath);
+BOOL FileExists(LPCTSTR szPath);
+
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
+    // Initialize savedVars
+    AssignDefaultVars();
+    if (FetchIniFilePath()) { // fetching path succeeded
+        if (FileExists(iniFilePath)) { // ini file exists
+            ReadIniFile();
+        }
+        else { // ini file doesn't exist
+
+            if (CreateIniFile()) { //ini file created
+
+                UpdateIniFile();
+            }
+        }
+    }
+
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
 
     // Register the window class.
@@ -86,7 +127,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     hInst = hInstance;
 
     // Run the message loop.
-
     MSG msg = { };
     while (GetMessage(&msg, NULL, 0, 0))
     {
@@ -151,7 +191,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         case WM_COMMAND:
         {
-            if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == hwndUpDnEdtBdy) {
+            if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == hwndUpDnEdtBdy && UpDnCtlInitialized) {
                 BOOL failed;
                 int result = SendMessage(hwndUpDnCtl, UDM_GETPOS32, 0, (LPARAM)&failed);
                 if (failed) {
@@ -171,6 +211,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (hBrushLabel) DeleteObject(hBrushLabel);
             UnregisterHotKey(hwnd, QL_TOGGLE_HOTKEY_ID);
+            UpdateIniFile();
             PostQuitMessage(0);
             break;
         }
@@ -229,7 +270,7 @@ HWND CreateHotkeyControl(HWND hwndParent, LPCWSTR windowName, int x, int y, int 
     // 0x4C is the virtual key code for 'L'. 
     SendMessage(hControl,
         HKM_SETHOTKEY,
-        MAKEWORD(0x4C, HOTKEYF_CONTROL | HOTKEYF_SHIFT),
+        MAKEWORD(savedVars.shortcutKey, savedVars.shortcutModifiers),
         0);
 
     return hControl;
@@ -252,7 +293,8 @@ HWND CreateUpDownControl(HWND hwndParent) {
         NULL);
 
     SendMessage(hControl, UDM_SETRANGE, 0, MAKELPARAM(CLICKLOCK_TIME_MAX, CLICKLOCK_TIME_MIN));
-    SendMessage(hControl, UDM_SETPOS, 0, CLICKLOCK_TIME_DEFAULT);
+    SendMessage(hControl, UDM_SETPOS, 0, (LPARAM)savedVars.activationTime);
+    UpDnCtlInitialized = TRUE;
 
     return (hControl);
 }
@@ -311,19 +353,25 @@ HWND CreateGroupBox(HWND hwndParent, LPCWSTR windowName, int x, int y, int width
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl) {
     UnregisterHotKey(NULL, QL_TOGGLE_HOTKEY_ID);
     LRESULT hotkeyData = SendMessage(hwndHotCtrl, HKM_GETHOTKEY, 0, 0);
-    byte modifiers = HIBYTE(hotkeyData) | MOD_NOREPEAT;
+    byte modifiers = HIBYTE(hotkeyData);
+    byte transformedMods = modifiers | MOD_NOREPEAT;
 
     // Compensate for difference between HOTKEYF_SHIFT/HOTKEYF_ALT and MOD_SHIFT/MOD_ALT
-    if (modifiers & 0x01 & ~0x04) {
-        modifiers = modifiers & ~0x01 | 0x04;
+    if (transformedMods & 0x01 & ~0x04) {
+        transformedMods = transformedMods & ~0x01 | 0x04;
     }
-    else if(modifiers & 0x04) {
-        modifiers = modifiers & ~0x04 | 0x01;
+    else if(transformedMods & 0x04) {
+        transformedMods = transformedMods & ~0x04 | 0x01;
     }
 
     byte vKey = LOBYTE(hotkeyData);
-    BOOL assignedHotkey = RegisterHotKey(NULL, QL_TOGGLE_HOTKEY_ID, modifiers, vKey);
-    if (!assignedHotkey)
+    BOOL assignedHotkey = RegisterHotKey(NULL, QL_TOGGLE_HOTKEY_ID, transformedMods, vKey);
+    if (assignedHotkey)
+    {
+        savedVars.shortcutKey = vKey;
+        savedVars.shortcutModifiers = modifiers;
+    }
+    else
     {
         MessageBox(hwndMain, L"An issue occurred while trying to register the ClickLock Toggle hotkey.\nMake sure the hotkey isn't used elsewhere and reassign the hotkey in the Quick ClickLock main window.",
             L"Hotkey Error", MB_ICONERROR);
@@ -355,4 +403,79 @@ void SetActivationTimer(int val) {
     }
 
     SystemParametersInfo(SPI_SETMOUSECLICKLOCKTIME, 0, (PVOID)val, SPIF_SENDCHANGE);
+    savedVars.activationTime = val;
+}
+
+void AssignDefaultVars() {
+    savedVars.activationTime = DEFAULT_ACTIVATION_TIME;
+    savedVars.shortcutKey = DEFAULT_HOTKEY;
+    savedVars.shortcutModifiers = DEFAULT_MODIFIERS;
+}
+
+BOOL FetchIniFilePath() {
+    LPTSTR path;
+    BOOL returnVal = TRUE;
+    return SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &path) +
+        StringCchCat(iniFilePath, MAX_PATH, path) +
+        StringCchCat(iniFilePath, MAX_PATH, L"\\") +
+        StringCchCat(iniFilePath, MAX_PATH, APPDATA_FOLDER) +
+        StringCchCat(iniFilePath, MAX_PATH, INI_FILENAME) == S_OK;
+}
+
+BOOL CreateIniFile() {
+    LPTSTR directoryPath;
+    
+    if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &directoryPath) +
+        StringCchCat(directoryPath, MAX_PATH, L"\\") +
+        StringCchCat(directoryPath, MAX_PATH, APPDATA_FOLDER) != S_OK) {
+        return FALSE;
+    }
+    if (!DirectoryExists(directoryPath)) {
+        if (!CreateDirectory(directoryPath, NULL)) return FALSE;
+    }
+
+    HANDLE handle = CreateFile(iniFilePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (handle != INVALID_HANDLE_VALUE) {
+        CloseHandle(handle);
+    }
+    else {
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_EXISTS) return FALSE;
+    }
+
+    return TRUE;
+}
+
+void ReadIniFile() {
+    savedVars.activationTime = GetPrivateProfileInt(APP_NAME, L"ActivationTime", DEFAULT_ACTIVATION_TIME, iniFilePath);
+    savedVars.shortcutKey = GetPrivateProfileInt(APP_NAME, L"ShortcutKey", DEFAULT_HOTKEY, iniFilePath);
+    savedVars.shortcutModifiers = GetPrivateProfileInt(APP_NAME, L"ShortcutModifiers", DEFAULT_MODIFIERS, iniFilePath);
+}
+
+BOOL UpdateIniFile() {
+    wchar_t timeStr[256];
+    _itow_s(savedVars.activationTime, timeStr, 10);
+    wchar_t keyStr[256];
+    _itow_s(savedVars.shortcutKey, keyStr, 10);
+    wchar_t modStr[256];
+    _itow_s(savedVars.shortcutModifiers, modStr, 10);
+    return WritePrivateProfileString(APP_NAME, L"ActivationTime", timeStr, iniFilePath) &
+        WritePrivateProfileString(APP_NAME, L"ShortcutKey", keyStr, iniFilePath) &
+        WritePrivateProfileString(APP_NAME, L"ShortcutModifiers", modStr, iniFilePath);
+}
+
+BOOL DirectoryExists(LPCTSTR szPath)
+{
+    DWORD dwAttrib = GetFileAttributes(szPath);
+
+    return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+        (dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+BOOL FileExists(LPCTSTR szPath)
+{
+    DWORD dwAttrib = GetFileAttributes(szPath);
+
+    return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+        !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
 }
