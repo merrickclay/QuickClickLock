@@ -251,7 +251,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_CLOSE:
         {
             ShowWindow(hwndMain, SW_HIDE);
-            SendNotification(L"Quick ClickLock", L"Quick Clicklock has been minimized.");
+            SendNotification(L"Quick ClickLock has been minimized", L"Right click the system tray icon and select \"Exit\" to exit the program.");
             break;
         }
         case WM_DESTROY:
@@ -413,17 +413,17 @@ void AddTrayIcon() {
 }
 
 void SendNotification(const wchar_t* title, const wchar_t* message) {
-    /*NOTIFYICONDATA nid;
+    NOTIFYICONDATA nid;
     nid.cbSize = sizeof(NOTIFYICONDATA);
     nid.hWnd = hwndMain;
-    nid.uID = 2;
+    nid.uID = 1;
     nid.uVersion = NOTIFYICON_VERSION;
     nid.uFlags = NIF_INFO;
     wcscpy_s(nid.szInfoTitle, title);
     wcscpy_s(nid.szInfo,  message);
     nid.dwInfoFlags = NIIF_NONE;
 
-    Shell_NotifyIcon(NIM_ADD, &nid);*/ // Not currently working
+    Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
 void RemoveTrayIcon() {
@@ -469,12 +469,12 @@ void ToggleClickLock() {
     SystemParametersInfo(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
     if (clickLockEnabled) {
         if (SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE)) {
-            // play sound
+            PlaySound(L"beep300.wav", NULL, SND_FILENAME);
         }
     }
     else {
         if (SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE)) {
-            // play sound
+            PlaySound(L"beep750.wav", NULL, SND_FILENAME);
         }
     }
 }
