@@ -2,15 +2,17 @@
 #define UNICODE
 #endif 
 
+#include <string>
 #include <windows.h>
 #include <tchar.h>
 #include <winuser.h>
 #include <commctrl.h>
 #include <shlObj.h>
-#include <string>
 #include <strsafe.h>
+#include <shellapi.h>
 
 #define APP_NAME L"QUICK_CLICKLOCK"
+#define WM_TRAYMSG (WM_USER + 1)
 #define WIN_SIZE_X 320
 #define WIN_SIZE_Y 160
 #define CLICKLOCK_TIME_MIN 200
@@ -18,6 +20,8 @@
 #define CLICKLOCK_TIME_DEFAULT 1200
 #define QL_TOGGLE_HOTKEY_ID 0x01
 #define CUSTOM_HOTKEY_CLASS_ID 0x01
+#define MENU_SETTINGS_ID 0
+#define MENU_EXIT_ID 1
 
 const LPCTSTR APPDATA_FOLDER = L"QuickClickLock\\";
 const LPCTSTR INI_FILENAME = L"quick_clicklock.ini";
@@ -42,7 +46,6 @@ BOOL UpDnCtlInitialized = FALSE;
 HINSTANCE hInst = NULL;
 
 TCHAR iniFilePath[MAX_PATH];
-
 struct IniVars {
     int activationTime;
     int shortcutKey;
@@ -58,6 +61,9 @@ HWND CreateUpDownControl(HWND hwndParent);
 HWND CreateUpDownBuddy(HWND hwndParent, LPCWSTR windowName, int x, int y, int width, int height);
 HWND CreateLabel(HWND hwndParent, LPCWSTR windowName, int x, int y, int width, int height);
 HWND CreateGroupBox(HWND hwndParent, LPCWSTR windowName, int x, int y, int width, int height);
+void AddTrayIcon();
+void SendNotification(const wchar_t* title, const wchar_t* message);
+void RemoveTrayIcon();
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl);
 void ToggleClickLock();
 void SetActivationTimer(int val);
@@ -122,7 +128,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 0;
     }
 
-    ShowWindow(hwndMain, nCmdShow);
+    ShowWindow(hwndMain, SW_HIDE);
+
+    AddTrayIcon();
 
     hInst = hInstance;
 
@@ -200,11 +208,50 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 }
                 SetActivationTimer(result);
             }
+            else if (HIWORD(wParam) == 0 && lParam == 0) {
+                switch(LOWORD(wParam))
+                {
+                case MENU_SETTINGS_ID:
+                    ShowWindow(hwndMain, SW_SHOW);
+                    break;
+                case MENU_EXIT_ID:
+                    DestroyWindow(hwndMain);
+                    break;
+                default:
+                    DefWindowProc(hwnd, uMsg, wParam, lParam);
+                }
+            }
             break;
         }
+        case WM_TRAYMSG:
+            switch (lParam)
+            {
+            case WM_LBUTTONDOWN:
+            {
+                ShowWindow(hwndMain, SW_SHOW);
+                break;
+            }
+            case WM_RBUTTONDOWN:
+            {
+                POINT mousePos;
+                GetCursorPos(&mousePos);
+                HMENU hPopupMenu = CreatePopupMenu();
+                InsertMenu(hPopupMenu, 0, MF_BYPOSITION | MF_STRING, MENU_SETTINGS_ID, L"Settings");
+                InsertMenu(hPopupMenu, 1, MF_BYPOSITION | MF_STRING, MENU_EXIT_ID, L"Exit");
+                SetForegroundWindow(hwndMain);
+                TrackPopupMenu(hPopupMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, mousePos.x, mousePos.y, 0, hwnd, NULL);
+                break;
+            }
+            default:
+            {
+                return DefWindowProc(hwnd, uMsg, wParam, lParam);
+            }
+            };
+            break;
         case WM_CLOSE:
         {
-            DestroyWindow(hwnd);
+            ShowWindow(hwndMain, SW_HIDE);
+            SendNotification(L"Quick ClickLock", L"Quick Clicklock has been minimized.");
             break;
         }
         case WM_DESTROY:
@@ -212,6 +259,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (hBrushLabel) DeleteObject(hBrushLabel);
             UnregisterHotKey(hwnd, QL_TOGGLE_HOTKEY_ID);
             UpdateIniFile();
+            RemoveTrayIcon();
             PostQuitMessage(0);
             break;
         }
@@ -348,6 +396,43 @@ HWND CreateGroupBox(HWND hwndParent, LPCWSTR windowName, int x, int y, int width
         NULL);
 
     return (hControl);
+}
+
+void AddTrayIcon() {
+    NOTIFYICONDATA nid;
+    nid.cbSize = sizeof(NOTIFYICONDATA);
+    nid.hWnd = hwndMain;
+    nid.uID = 1;
+    nid.uVersion = NOTIFYICON_VERSION;
+    nid.uCallbackMessage = WM_TRAYMSG;
+    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wcscpy_s(nid.szTip, L"Quick ClickLock");
+    nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+
+    Shell_NotifyIcon(NIM_ADD, &nid);
+}
+
+void SendNotification(const wchar_t* title, const wchar_t* message) {
+    /*NOTIFYICONDATA nid;
+    nid.cbSize = sizeof(NOTIFYICONDATA);
+    nid.hWnd = hwndMain;
+    nid.uID = 2;
+    nid.uVersion = NOTIFYICON_VERSION;
+    nid.uFlags = NIF_INFO;
+    wcscpy_s(nid.szInfoTitle, title);
+    wcscpy_s(nid.szInfo,  message);
+    nid.dwInfoFlags = NIIF_NONE;
+
+    Shell_NotifyIcon(NIM_ADD, &nid);*/ // Not currently working
+}
+
+void RemoveTrayIcon() {
+    NOTIFYICONDATA nid;
+    nid.cbSize = sizeof(NOTIFYICONDATA);
+    nid.hWnd = hwndMain;
+    nid.uID = 1;
+
+    Shell_NotifyIcon(NIM_DELETE, &nid);
 }
 
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl) {
