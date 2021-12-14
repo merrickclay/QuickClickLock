@@ -25,6 +25,8 @@
 
 const LPCTSTR APPDATA_FOLDER = L"QuickClickLock\\";
 const LPCTSTR INI_FILENAME = L"quick_clicklock.ini";
+const LPCWSTR ENABLED_AUDIO_NOTIF = L"beep750.wav";
+const LPCWSTR DISABLED_AUDIO_NOTIF = L"beep300.wav";
 const int DEFAULT_HOTKEY = 0x4C;
 const int DEFAULT_MODIFIERS = HOTKEYF_CONTROL | HOTKEYF_SHIFT;
 const int DEFAULT_ACTIVATION_TIME = 1200;
@@ -66,6 +68,7 @@ void SendNotification(const wchar_t* title, const wchar_t* message);
 void RemoveTrayIcon();
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl);
 void ToggleClickLock();
+void PlayAudioNotif();
 void SetActivationTimer(int val);
 void AssignDefaultVars();
 BOOL FetchIniFilePath();
@@ -169,7 +172,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             hwndHotkeyLabel = CreateLabel(hwnd, L"Activation Time (ms):", rcClient.left + 20, rcClient.top + 76, 140, 23);
             hwndUpDnEdtBdy = CreateUpDownBuddy(hwnd, NULL, rcClient.left + 170, rcClient.top + 75, rcClient.right - 195, 23);
             hwndUpDnCtl = CreateUpDownControl(hwnd);
-            AssignHotkey(hwndMain, hwndHotCtrl);         
+            AssignHotkey(hwndMain, hwndHotCtrl); 
+            PlayAudioNotif();
             break;
         }
         case WM_PAINT:
@@ -314,8 +318,6 @@ HWND CreateHotkeyControl(HWND hwndParent, LPCWSTR windowName, int x, int y, int 
         (WPARAM)HKCOMB_NONE | HKCOMB_S,   // invalid key combinations 
         MAKELPARAM(HOTKEYF_CONTROL, 0)); // substitution for invalid combinations
 
-    // Set CTRL + SHIFT + L as the default hot key for this window. 
-    // 0x4C is the virtual key code for 'L'. 
     SendMessage(hControl,
         HKM_SETHOTKEY,
         MAKEWORD(savedVars.shortcutKey, savedVars.shortcutModifiers),
@@ -468,14 +470,22 @@ void ToggleClickLock() {
     BOOL clickLockEnabled;
     SystemParametersInfo(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
     if (clickLockEnabled) {
-        if (SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE)) {
-            PlaySound(L"beep300.wav", NULL, SND_FILENAME);
-        }
+        SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE);
     }
     else {
-        if (SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE)) {
-            PlaySound(L"beep750.wav", NULL, SND_FILENAME);
-        }
+        SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE);
+    }
+    PlayAudioNotif();
+}
+
+void PlayAudioNotif() {
+    BOOL clickLockEnabled;
+    SystemParametersInfo(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
+    if (clickLockEnabled) {
+        PlaySound(ENABLED_AUDIO_NOTIF, NULL, SND_FILENAME);
+    }
+    else {
+        PlaySound(DISABLED_AUDIO_NOTIF, NULL, SND_FILENAME);
     }
 }
 
