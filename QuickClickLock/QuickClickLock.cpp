@@ -10,6 +10,7 @@
 #include <shlObj.h>
 #include <strsafe.h>
 #include <shellapi.h>
+#include "resource.h"
 
 #define APP_NAME L"QUICK_CLICKLOCK"
 #define WM_TRAYMSG (WM_USER + 1)
@@ -23,10 +24,10 @@
 #define MENU_SETTINGS_ID 0
 #define MENU_EXIT_ID 1
 
+static UINT WM_TASKBARCREATED;
+
 const LPCTSTR APPDATA_FOLDER = L"QuickClickLock\\";
 const LPCTSTR INI_FILENAME = L"quick_clicklock.ini";
-const LPCWSTR ENABLED_AUDIO_NOTIF = L"beep750.wav";
-const LPCWSTR DISABLED_AUDIO_NOTIF = L"beep300.wav";
 const int DEFAULT_HOTKEY = 0x4C;
 const int DEFAULT_MODIFIERS = HOTKEYF_CONTROL | HOTKEYF_SHIFT;
 const int DEFAULT_ACTIVATION_TIME = 1200;
@@ -37,6 +38,11 @@ COLORREF clrLabelText;
 COLORREF clrLabelBkGnd;
 
 INITCOMMONCONTROLSEX icex;
+HICON hIconGreenSmall = NULL;
+HICON hIconGreen = NULL;
+HICON hIconRedSmall = NULL;
+HICON hIconRed = NULL;
+NOTIFYICONDATA nidTrayIcon;
 HWND hwndMain = NULL;
 HWND hwndUpDnGroupBox = NULL;
 HWND hwndHotkeyLabel = NULL;
@@ -63,12 +69,15 @@ HWND CreateUpDownControl(HWND hwndParent);
 HWND CreateUpDownBuddy(HWND hwndParent, LPCWSTR windowName, int x, int y, int width, int height);
 HWND CreateLabel(HWND hwndParent, LPCWSTR windowName, int x, int y, int width, int height);
 HWND CreateGroupBox(HWND hwndParent, LPCWSTR windowName, int x, int y, int width, int height);
-void AddTrayIcon();
+NOTIFYICONDATA AddTrayIcon();
 void SendNotification(const wchar_t* title, const wchar_t* message);
-void RemoveTrayIcon();
+void RemoveTrayIcon(NOTIFYICONDATA nid);
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl);
+BOOL GetClickLockStatus();
 void ToggleClickLock();
-void PlayAudioNotif();
+void PlayAudioNotif(BOOL clickLockEnabled);
+void SetWindowIcons(BOOL clickLockEnabled, HWND hwnd, NOTIFYICONDATA nid);
+HICON GetTrayIcon(BOOL clickLockEnabled);
 void SetActivationTimer(int val);
 void AssignDefaultVars();
 BOOL FetchIniFilePath();
@@ -96,18 +105,29 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         }
     }
 
+    hInst = hInstance;
+
+    // Load resources
+    hIconGreenSmall = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_GREEN_SMALL)); 
+    hIconGreen = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_GREEN_LARGE));
+    hIconRedSmall = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_RED_SMALL));
+    hIconRed = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_RED_LARGE));
+
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
 
     // Register the window class.
     const wchar_t CLASS_NAME[] = L"MAIN WINDOW";
 
-    WNDCLASS wc = { };
+    WNDCLASSEX wcex = { };
 
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
+    wcex.cbSize = sizeof(wcex);
+    wcex.lpfnWndProc = WindowProc;
+    wcex.hInstance = hInstance;
+    wcex.lpszClassName = CLASS_NAME;
+    wcex.hIcon = hIconGreen;
+    wcex.hIconSm = hIconGreenSmall;
 
-    RegisterClass(&wc);
+    RegisterClassExW(&wcex);
 
     // Create the window.
 
@@ -131,11 +151,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 0;
     }
 
+    nidTrayIcon = AddTrayIcon();
     ShowWindow(hwndMain, SW_HIDE);
-
-    AddTrayIcon();
-
-    hInst = hInstance;
 
     // Run the message loop.
     MSG msg = { };
@@ -161,6 +178,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         case WM_CREATE:
         {
+            WM_TASKBARCREATED = RegisterWindowMessage(TEXT("TaskbarCreated"));
+
             GetClientRect(hwnd, &rcClient);
             hBrushLabel = NULL;
             clrLabelText = GetSysColor(COLOR_WINDOWTEXT);
@@ -173,7 +192,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             hwndUpDnEdtBdy = CreateUpDownBuddy(hwnd, NULL, rcClient.left + 170, rcClient.top + 75, rcClient.right - 195, 23);
             hwndUpDnCtl = CreateUpDownControl(hwnd);
             AssignHotkey(hwndMain, hwndHotCtrl); 
-            PlayAudioNotif();
+
+            BOOL clickLockEnabled = GetClickLockStatus();
+            PlayAudioNotif(clickLockEnabled);
+            SetWindowIcons(clickLockEnabled, hwndMain, nidTrayIcon);
             break;
         }
         case WM_PAINT:
@@ -263,12 +285,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (hBrushLabel) DeleteObject(hBrushLabel);
             UnregisterHotKey(hwnd, QL_TOGGLE_HOTKEY_ID);
             UpdateIniFile();
-            RemoveTrayIcon();
+            RemoveTrayIcon(nidTrayIcon);
             PostQuitMessage(0);
             break;
         }
         default:
         {
+            if (uMsg == WM_TASKBARCREATED)
+                AddTrayIcon();
             DefWindowProc(hwnd, uMsg, wParam, lParam);
             break;
         }
@@ -400,18 +424,19 @@ HWND CreateGroupBox(HWND hwndParent, LPCWSTR windowName, int x, int y, int width
     return (hControl);
 }
 
-void AddTrayIcon() {
+NOTIFYICONDATA AddTrayIcon() {
     NOTIFYICONDATA nid;
     nid.cbSize = sizeof(NOTIFYICONDATA);
     nid.hWnd = hwndMain;
     nid.uID = 1;
-    nid.uVersion = NOTIFYICON_VERSION;
+    nid.uVersion = NOTIFYICON_VERSION_4;
     nid.uCallbackMessage = WM_TRAYMSG;
-    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    nid.hIcon = GetTrayIcon(GetClickLockStatus());
     wcscpy_s(nid.szTip, L"Quick ClickLock");
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
 
-    Shell_NotifyIcon(NIM_ADD, &nid);
+    Shell_NotifyIcon(NIM_ADD, &nid) ? S_OK : E_FAIL;
+    return nid;
 }
 
 void SendNotification(const wchar_t* title, const wchar_t* message) {
@@ -419,22 +444,17 @@ void SendNotification(const wchar_t* title, const wchar_t* message) {
     nid.cbSize = sizeof(NOTIFYICONDATA);
     nid.hWnd = hwndMain;
     nid.uID = 1;
-    nid.uVersion = NOTIFYICON_VERSION;
+    nid.uVersion = NOTIFYICON_VERSION_4;
     nid.uFlags = NIF_INFO;
     wcscpy_s(nid.szInfoTitle, title);
     wcscpy_s(nid.szInfo,  message);
     nid.dwInfoFlags = NIIF_NONE;
 
-    Shell_NotifyIcon(NIM_MODIFY, &nid);
+    Shell_NotifyIcon(NIM_MODIFY, &nid) ? S_OK : E_FAIL;
 }
 
-void RemoveTrayIcon() {
-    NOTIFYICONDATA nid;
-    nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = hwndMain;
-    nid.uID = 1;
-
-    Shell_NotifyIcon(NIM_DELETE, &nid);
+void RemoveTrayIcon(NOTIFYICONDATA nid) {
+    Shell_NotifyIcon(NIM_DELETE, &nid) ? S_OK : E_FAIL;
 }
 
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl) {
@@ -466,27 +486,54 @@ BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl) {
     return assignedHotkey;
 }
 
-void ToggleClickLock() {
+BOOL GetClickLockStatus() {
     BOOL clickLockEnabled;
     SystemParametersInfo(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
+    OutputDebugString(clickLockEnabled ? L"\nEnabled\n\n" : L"\nDisabled\n\n");
+    return clickLockEnabled;
+}
+
+void ToggleClickLock() {
+    BOOL clickLockEnabled = GetClickLockStatus();
     if (clickLockEnabled) {
         SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)FALSE, SPIF_SENDCHANGE);
     }
     else {
         SystemParametersInfo(SPI_SETMOUSECLICKLOCK, 0, (PVOID)TRUE, SPIF_SENDCHANGE);
     }
-    PlayAudioNotif();
+    clickLockEnabled = !clickLockEnabled;
+    PlayAudioNotif(clickLockEnabled);
+    SetWindowIcons(clickLockEnabled, hwndMain, nidTrayIcon);
 }
 
-void PlayAudioNotif() {
-    BOOL clickLockEnabled;
-    SystemParametersInfo(SPI_GETMOUSECLICKLOCK, 0, &clickLockEnabled, 0);
+void PlayAudioNotif(BOOL clickLockEnabled) {
     if (clickLockEnabled) {
-        PlaySound(ENABLED_AUDIO_NOTIF, NULL, SND_FILENAME);
+        PlaySoundW(MAKEINTRESOURCE(IDW_HIGH_NOTIF), hInst, SND_RESOURCE | SND_ASYNC);
     }
     else {
-        PlaySound(DISABLED_AUDIO_NOTIF, NULL, SND_FILENAME);
+        PlaySoundW(MAKEINTRESOURCE(IDW_LOW_NOTIF), hInst, SND_RESOURCE | SND_ASYNC);
     }
+}
+
+void SetWindowIcons(BOOL clickLockEnabled, HWND hwnd, NOTIFYICONDATA nid) {
+    if (clickLockEnabled) {
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconGreenSmall);
+        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconGreen);
+        nid.hIcon = hIconGreen;
+    }
+    else {
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconRedSmall);
+        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconRed);
+        nid.hIcon = hIconRed;
+    }
+    Shell_NotifyIcon(NIM_MODIFY, &nid) ? S_OK : E_FAIL;
+}
+
+HICON GetTrayIcon(BOOL clickLockEnabled) {
+    if (clickLockEnabled) {
+        return hIconGreen;
+    }
+    return hIconRed;
 }
 
 void SetActivationTimer(int val) {
