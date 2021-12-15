@@ -18,7 +18,6 @@
 #define WIN_SIZE_Y 160
 #define CLICKLOCK_TIME_MIN 200
 #define CLICKLOCK_TIME_MAX 2200
-#define CLICKLOCK_TIME_DEFAULT 1200
 #define QL_TOGGLE_HOTKEY_ID 0x01
 #define CUSTOM_HOTKEY_CLASS_ID 0x01
 #define MENU_SETTINGS_ID 0
@@ -30,7 +29,6 @@ const LPCTSTR APPDATA_FOLDER = L"QuickClickLock\\";
 const LPCTSTR INI_FILENAME = L"quick_clicklock.ini";
 const int DEFAULT_HOTKEY = 0x4C;
 const int DEFAULT_MODIFIERS = HOTKEYF_CONTROL | HOTKEYF_SHIFT;
-const int DEFAULT_ACTIVATION_TIME = 1200;
 
 RECT rcClient;
 HBRUSH hBrushLabel;
@@ -55,7 +53,6 @@ HINSTANCE hInst = NULL;
 
 TCHAR iniFilePath[MAX_PATH];
 struct IniVars {
-    int activationTime;
     int shortcutKey;
     int shortcutModifiers;
 } savedVars;
@@ -74,6 +71,7 @@ void SendNotification(const wchar_t* title, const wchar_t* message);
 void RemoveTrayIcon(NOTIFYICONDATA nid);
 BOOL AssignHotkey(HWND hwndMain, HWND hwndHotCtrl);
 BOOL GetClickLockStatus();
+UINT GetActivationTime();
 void ToggleClickLock();
 void PlayAudioNotif(BOOL clickLockEnabled);
 void SetWindowIcons(BOOL clickLockEnabled, HWND hwnd, NOTIFYICONDATA nid);
@@ -229,7 +227,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 BOOL failed;
                 int result = SendMessage(hwndUpDnCtl, UDM_GETPOS32, 0, (LPARAM)&failed);
                 if (failed) {
-                    result = result >= CLICKLOCK_TIME_MAX ? CLICKLOCK_TIME_MAX : result <= CLICKLOCK_TIME_MIN ? CLICKLOCK_TIME_MIN : CLICKLOCK_TIME_DEFAULT;
+                    result = result >= CLICKLOCK_TIME_MAX ? CLICKLOCK_TIME_MAX : result <= CLICKLOCK_TIME_MIN ? CLICKLOCK_TIME_MIN : result;
                     SendMessage(hwndUpDnCtl, UDM_SETPOS, 0, result);
                 }
                 SetActivationTimer(result);
@@ -255,6 +253,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case WM_LBUTTONDOWN:
             {
                 ShowWindow(hwndMain, SW_SHOW);
+                SetActivationTimer(GetActivationTime());
+                SetForegroundWindow(hwndMain);
+                SetActiveWindow(hwndMain);
                 break;
             }
             case WM_RBUTTONDOWN:
@@ -367,7 +368,7 @@ HWND CreateUpDownControl(HWND hwndParent) {
         NULL);
 
     SendMessage(hControl, UDM_SETRANGE, 0, MAKELPARAM(CLICKLOCK_TIME_MAX, CLICKLOCK_TIME_MIN));
-    SendMessage(hControl, UDM_SETPOS, 0, (LPARAM)savedVars.activationTime);
+    SendMessage(hControl, UDM_SETPOS, 0, (LPARAM)GetActivationTime());
     UpDnCtlInitialized = TRUE;
 
     return (hControl);
@@ -493,6 +494,12 @@ BOOL GetClickLockStatus() {
     return clickLockEnabled;
 }
 
+UINT GetActivationTime() {
+    UINT time;
+    SystemParametersInfo(SPI_GETMOUSECLICKLOCKTIME, 0, &time, 0);
+    return time;
+}
+
 void ToggleClickLock() {
     BOOL clickLockEnabled = GetClickLockStatus();
     if (clickLockEnabled) {
@@ -544,12 +551,11 @@ void SetActivationTimer(int val) {
         val = CLICKLOCK_TIME_MIN;
     }
 
+    SendMessage(hwndUpDnCtl, UDM_SETPOS, 0, val);
     SystemParametersInfo(SPI_SETMOUSECLICKLOCKTIME, 0, (PVOID)val, SPIF_SENDCHANGE);
-    savedVars.activationTime = val;
 }
 
 void AssignDefaultVars() {
-    savedVars.activationTime = DEFAULT_ACTIVATION_TIME;
     savedVars.shortcutKey = DEFAULT_HOTKEY;
     savedVars.shortcutModifiers = DEFAULT_MODIFIERS;
 }
@@ -589,21 +595,17 @@ BOOL CreateIniFile() {
 }
 
 void ReadIniFile() {
-    savedVars.activationTime = GetPrivateProfileInt(APP_NAME, L"ActivationTime", DEFAULT_ACTIVATION_TIME, iniFilePath);
     savedVars.shortcutKey = GetPrivateProfileInt(APP_NAME, L"ShortcutKey", DEFAULT_HOTKEY, iniFilePath);
     savedVars.shortcutModifiers = GetPrivateProfileInt(APP_NAME, L"ShortcutModifiers", DEFAULT_MODIFIERS, iniFilePath);
 }
 
 BOOL UpdateIniFile() {
-    wchar_t timeStr[256];
-    _itow_s(savedVars.activationTime, timeStr, 10);
     wchar_t keyStr[256];
     _itow_s(savedVars.shortcutKey, keyStr, 10);
     wchar_t modStr[256];
     _itow_s(savedVars.shortcutModifiers, modStr, 10);
-    return WritePrivateProfileString(APP_NAME, L"ActivationTime", timeStr, iniFilePath) &
-        WritePrivateProfileString(APP_NAME, L"ShortcutKey", keyStr, iniFilePath) &
-        WritePrivateProfileString(APP_NAME, L"ShortcutModifiers", modStr, iniFilePath);
+    return WritePrivateProfileString(APP_NAME, L"ShortcutKey", keyStr + '\0', iniFilePath) &
+        WritePrivateProfileString(APP_NAME, L"ShortcutModifiers", modStr + '\0', iniFilePath);
 }
 
 BOOL DirectoryExists(LPCTSTR szPath)
