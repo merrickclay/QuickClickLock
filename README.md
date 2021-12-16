@@ -1,7 +1,7 @@
 ## Quick ClickLock
 A simple-to-use tool to toggle QuickLock functionality on Windows with a custom hotkey.
 
-![Quick ClickLock main window](https://i.imgur.com/ypa4Gya.png)
+![Quick ClickLock main window](https://i.imgur.com/tCTPlUb.png)
 
 ## Features
 - Support for user defined hotkey, including modifiers.
