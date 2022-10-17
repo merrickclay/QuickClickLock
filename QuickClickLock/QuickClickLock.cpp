@@ -191,9 +191,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             hwndUpDnCtl = CreateUpDownControl(hwnd);
             AssignHotkey(hwndMain, hwndHotCtrl); 
 
-            BOOL clickLockEnabled = GetClickLockStatus();
-            PlayAudioNotif(clickLockEnabled);
-            SetWindowIcons(clickLockEnabled, hwndMain, nidTrayIcon);
             break;
         }
         case WM_PAINT:
@@ -206,6 +203,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
 
             EndPaint(hwnd, &ps);
+            BOOL clickLockEnabled = GetClickLockStatus();
+            PlayAudioNotif(clickLockEnabled);
+            SetWindowIcons(clickLockEnabled, hwndMain, nidTrayIcon);
             break;
         }
         case WM_CTLCOLORSTATIC:
@@ -367,7 +367,16 @@ HWND CreateUpDownControl(HWND hwndParent) {
         hInst,
         NULL);
 
+
+    UDACCEL udAccels[10];
+    udAccels[0].nSec = 0;
+    udAccels[0].nInc = 100;
+    udAccels[1].nSec = 1;
+    udAccels[1].nInc = 200;
+
+
     SendMessage(hControl, UDM_SETRANGE, 0, MAKELPARAM(CLICKLOCK_TIME_MAX, CLICKLOCK_TIME_MIN));
+    bool succeeded = SendMessage(hControl, UDM_SETACCEL, sizeof(UDACCEL) * 2, (LPARAM)udAccels);
     SendMessage(hControl, UDM_SETPOS, 0, (LPARAM)GetActivationTime());
     UpDnCtlInitialized = TRUE;
 
@@ -379,10 +388,10 @@ HWND CreateUpDownBuddy(HWND hwndParent, LPCWSTR windowName, int x, int y, int wi
     InitCommonControlsEx(&icex);
 
     HWND hControl = CreateWindowExW(WS_EX_LEFT | WS_EX_CLIENTEDGE | WS_EX_CONTEXTHELP,    //Extended window styles.
-        WC_EDIT,
+        WC_STATIC,
         windowName,
         WS_CHILDWINDOW | WS_VISIBLE | WS_BORDER    // Window styles.
-        | ES_NUMBER | ES_LEFT,                     // Edit control styles.
+        | ES_READONLY | ES_NUMBER | ES_LEFT,                     // Edit control styles.
         x, y,
         width, height,
         hwndParent,
