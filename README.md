@@ -21,10 +21,10 @@ Download the most recent release: https://github.com/merrickclay/QuickClickLock/
 6. To close program, right click the green or red mouse icon in the system tray and select 'Exit'.
 
 ## Motivation
-Why playing Foxhole (video game) I found the Windows ClickLock very useful when building or digging trenches. However, not being able to quickly turn off ClickLock before engaging with the enemy in a sudden firefight often proved detrimental to my team. On a few occasions, ClickLock engaging while I was in combat lead to some friendly fire. I thought it would be nice to be able to quickly toggle QuickLock on and off with a custom hotkey, and the idea for Quick ClickLock was born. I had never developed a Windows Desktop App with the Win32 API before, so the opportunity to learn and gain experience from this project was also a key motivating factor.
+While playing Foxhole (video game) I found the Windows ClickLock very useful when building or digging trenches. However, not being able to quickly turn off ClickLock before engaging with the enemy in a sudden firefight often proved detrimental to my team. On a few occasions, ClickLock engaging while I was in combat lead to some friendly fire. I thought it would be nice to be able to quickly toggle QuickLock on and off with a custom hotkey, and the idea for Quick ClickLock was born. I had never developed a Windows Desktop App with the Win32 API before, so the opportunity to learn and gain experience from this project was also a key motivating factor.
 
 ## Build status
-The current build is a beta build. All core functionality has been implemented, but I would like to improve some of the UX before if future releases.
+The current build is a beta build. All core functionality has been implemented, but I would like to improve some of the UX before future releases.
 
 ## Technologies
 Written in C++, using the Win32 API. Developed in Visual Studio 2019.
@@ -38,7 +38,7 @@ Many thanks to the wonderful documentation being maintained at https://docs.micr
 ## License
 MIT License
 
-Copyright (c) 2021 Merrick Clay
+Copyright (c) 2022 Merrick Clay
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
